@@ -411,7 +411,105 @@ svg{display:block;width:100%;height:auto;overflow:visible}
   </div>
 </section>
 
-<!-- 7 · SURGERY -->
+<!-- 7 · FRAMEWORK (full input → output) -->
+<section class="slide" data-id="Framework" data-stage="frames,enc,state,wm,roll,out">
+  <div class="hd">
+    <p class="eyebrow" data-a="1">The complete algorithm · video in, video and scene out</p>
+    <h2 data-a="2">Encode. Fold. <em>Predict.</em> Unfold. Decode.</h2>
+  </div>
+  <div class="stage">
+    <div class="fig" data-a="3">
+      <svg viewBox="0 0 1180 400" id="fw" aria-label="Full framework: frozen DINOv3 multi-layer features, linear bottleneck folding 2x2 in space and 2x in time into a latent z, the re-based world model predicting future latents, then spatial upsampling, a causal spatio-temporal vision transformer, and temporal upsampling back to video; a frozen readout head branches off the reconstructed features">
+        <!-- ENCODE -->
+        <text x="0" y="18" class="t-key" style="fill:var(--teal-d)">ENCODE — frozen</text>
+        <g class="hit sel" data-w="e1">
+          <rect x="0" y="34" width="132" height="96" rx="12" class="box"/>
+          <rect x="16" y="52" width="36" height="60" rx="4" fill="var(--ink2)" opacity=".18"/>
+          <rect x="48" y="52" width="36" height="60" rx="4" fill="var(--ink2)" opacity=".3"/>
+          <rect x="80" y="52" width="36" height="60" rx="4" fill="var(--ink2)" opacity=".42"/>
+          <text x="66" y="152" text-anchor="middle" class="t-lab">video · 16 frames</text>
+        </g>
+        <path d="M132 82 L172 82" class="flow"/>
+        <g class="hit" data-w="e2">
+          <rect x="172" y="34" width="164" height="96" rx="12" fill="var(--teal-f)" stroke="var(--teal-d)" stroke-width="2.4"/>
+          <text x="254" y="66" text-anchor="middle" class="t-key" style="fill:var(--teal-d)">DINOv3-L</text>
+          <text x="254" y="94" text-anchor="middle" class="t-sm">per frame</text>
+          <text x="254" y="118" text-anchor="middle" class="t-sm">layers mixed</text>
+          <text x="254" y="152" text-anchor="middle" class="t-lab">16 × 14×14 × 1024</text>
+        </g>
+        <path d="M336 82 L376 82" class="flow"/>
+        <!-- FOLD -->
+        <g class="hit" data-w="e3">
+          <rect x="376" y="34" width="176" height="96" rx="12" fill="var(--teal-f)" stroke="var(--teal-d)" stroke-width="2.4"/>
+          <text x="464" y="64" text-anchor="middle" class="t-key" style="fill:var(--teal-d)">LINEAR FOLD</text>
+          <text x="464" y="92" text-anchor="middle" class="t-sm">2×2 space · 2× time</text>
+          <text x="464" y="116" text-anchor="middle" class="t-sm">→ C channels</text>
+          <text x="464" y="152" text-anchor="middle" class="t-lab" style="fill:var(--teal-d)">ours · component 1</text>
+        </g>
+        <path d="M552 82 L592 82" class="flow"/>
+        <!-- LATENT -->
+        <g class="hit" data-w="z">
+          <rect x="592" y="34" width="140" height="96" rx="12" fill="var(--amber-f)" stroke="var(--amber-d)" stroke-width="2.6"/>
+          <rect x="638" y="58" width="48" height="48" rx="6" fill="var(--amber)"/>
+          <text x="662" y="152" text-anchor="middle" class="t-key" style="fill:var(--amber-d)">z · 8 × 7×7 × C</text>
+        </g>
+        <path d="M732 82 L772 82" class="flow-a"/>
+        <!-- WORLD MODEL -->
+        <g class="hit" data-w="wm">
+          <rect x="772" y="26" width="230" height="112" rx="13" fill="var(--amber-f)" stroke="var(--amber-d)" stroke-width="2.8"/>
+          <text x="887" y="62" text-anchor="middle" class="t-key" style="fill:var(--amber-d)">RE-BASED PRIOR</text>
+          <text x="887" y="92" text-anchor="middle" class="t-sm">30 blocks kept · causal</text>
+          <text x="887" y="118" text-anchor="middle" class="t-sm">flow matching · per-frame noise</text>
+          <text x="887" y="158" text-anchor="middle" class="t-lab" style="fill:var(--amber-d)">ours · component 2 ★</text>
+        </g>
+        <path d="M1002 82 L1042 82" class="flow-a"/>
+        <g class="hit" data-w="zh">
+          <rect x="1042" y="34" width="138" height="96" rx="12" fill="var(--amber-f)" stroke="var(--amber-d)" stroke-width="2.6" stroke-dasharray="7 4"/>
+          <rect x="1087" y="58" width="48" height="48" rx="6" fill="var(--amber)" opacity=".6"/>
+          <text x="1111" y="152" text-anchor="middle" class="t-key" style="fill:var(--amber-d)">ẑ · future</text>
+        </g>
+        <!-- turn -->
+        <path d="M1111 168 C 1111 196, 1111 200, 1090 208" class="flow-a"/>
+        <line x1="0" y1="196" x2="1180" y2="196" stroke="var(--line)" stroke-width="2" stroke-dasharray="4 8"/>
+
+        <!-- DECODE row -->
+        <text x="1180" y="230" text-anchor="end" class="t-key" style="fill:var(--teal-d)">DECODE — reverse the fold</text>
+        <g class="hit" data-w="d1">
+          <rect x="900" y="244" width="180" height="92" rx="12" class="box" stroke="var(--teal-d)" stroke-width="2.2"/>
+          <text x="990" y="280" text-anchor="middle" class="t-key">SPATIAL ↑</text>
+          <text x="990" y="310" text-anchor="middle" class="t-sm">7×7 → 14×14</text>
+        </g>
+        <path d="M900 290 L860 290" class="flow-t" transform="rotate(180 880 290)"/>
+        <g class="hit" data-w="d2">
+          <rect x="600" y="244" width="240" height="92" rx="12" class="box" stroke="var(--teal-d)" stroke-width="2.2"/>
+          <text x="720" y="280" text-anchor="middle" class="t-key">CAUSAL ST-ViT</text>
+          <text x="720" y="310" text-anchor="middle" class="t-sm">reconstructs the video</text>
+        </g>
+        <path d="M600 290 L560 290" class="flow-t" transform="rotate(180 580 290)"/>
+        <g class="hit" data-w="d3">
+          <rect x="360" y="244" width="180" height="92" rx="12" class="box" stroke="var(--teal-d)" stroke-width="2.2"/>
+          <text x="450" y="280" text-anchor="middle" class="t-key">TEMPORAL ↑</text>
+          <text x="450" y="310" text-anchor="middle" class="t-sm">8 → 16 frames</text>
+        </g>
+        <path d="M360 290 L320 290" class="flow-t" transform="rotate(180 340 290)"/>
+        <g class="hit" data-w="out">
+          <rect x="150" y="244" width="150" height="92" rx="12" fill="var(--teal-f)" stroke="var(--teal-d)" stroke-width="2.6"/>
+          <text x="225" y="296" text-anchor="middle" class="t-key" style="fill:var(--teal-d)">VIDEO OUT</text>
+        </g>
+        <!-- readout branch -->
+        <path d="M720 336 C 720 366, 700 372, 660 372" class="flow-t"/>
+        <g class="hit" data-w="read">
+          <rect x="360" y="348" width="290" height="48" rx="11" class="box" stroke="var(--teal-d)" stroke-width="2.2"/>
+          <text x="505" y="380" text-anchor="middle" class="t-key" style="fill:var(--teal-d)">FROZEN READOUT → SCENE</text>
+        </g>
+        <text x="150" y="380" class="t-sm">no renderer needed</text>
+      </svg>
+    </div>
+    <div class="ins" id="fwins" data-a="4"></div>
+  </div>
+</section>
+
+<!-- 8 · SURGERY -->
 <section class="slide" data-id="Re-basing" data-stage="wm">
   <div class="hd" style="display:flex;justify-content:space-between;align-items:flex-end;gap:20px">
     <div><p class="eyebrow" data-a="1">Our component 2 · ★ the mechanism</p>
@@ -557,39 +655,11 @@ svg{display:block;width:100%;height:auto;overflow:visible}
   </div>
 </section>
 
-<!-- 11 · OPEN PROBLEM -->
-<section class="slide" data-id="Open problem" data-stage="out">
+<!-- 12 · PLAN -->
+<section class="slide" data-id="Plan" data-stage="wm,roll,out">
   <div class="hd">
-    <p class="eyebrow" data-a="1">Reported without cosmetics</p>
-    <h2 data-a="2">Dynamic degree reads <em>0.00</em>. <q>Model, or renderer?</q></h2>
-  </div>
-  <div class="stage">
-    <div class="fig" data-a="3">
-      <svg viewBox="0 0 1060 200" aria-label="The ground-truth decode also scores near zero on dynamic degree, so the renderer confounds the measurement">
-        <rect x="0" y="30" width="300" height="130" rx="14" class="box" stroke="var(--coral)" stroke-width="2.4"/>
-        <text x="150" y="74" text-anchor="middle" class="t-key">OUR ROLLOUT</text>
-        <text x="150" y="118" text-anchor="middle" style="font:700 40px var(--sf);fill:var(--coral-d)">0.00</text>
-        <text x="150" y="146" text-anchor="middle" class="t-sm">dynamic degree</text>
-        <rect x="380" y="30" width="300" height="130" rx="14" class="box" stroke="var(--ink)" stroke-width="2.4"/>
-        <text x="530" y="74" text-anchor="middle" class="t-key">REAL VIDEO, SAME RENDERER</text>
-        <text x="530" y="118" text-anchor="middle" style="font:700 40px var(--sf);fill:var(--coral-d)">0.09</text>
-        <text x="530" y="146" text-anchor="middle" class="t-sm">dynamic degree</text>
-        <path d="M680 95 L740 95" class="flow-a"/>
-        <rect x="750" y="30" width="310" height="130" rx="14" fill="var(--amber-f)" stroke="var(--amber-d)" stroke-width="2.4"/>
-        <text x="905" y="72" text-anchor="middle" class="t-key" style="fill:var(--amber-d)">THE RENDERER FLATTENS MOTION</text>
-        <text x="905" y="108" text-anchor="middle" class="t-lab">128px decoder caps the metric</text>
-        <text x="905" y="140" text-anchor="middle" class="t-lab" style="fill:var(--teal-d)">224px decoder now running</text>
-      </svg>
-    </div>
-    <p class="cap" data-a="4">Ground-truth video, pushed through the same renderer, also scores near zero. <b>Until the ceiling lifts, motion is unmeasurable here</b> — so we state the confound rather than the claim.</p>
-  </div>
-</section>
-
-<!-- 12 · ROADMAP -->
-<section class="slide" data-id="Route" data-stage="wm,roll,out">
-  <div class="hd">
-    <p class="eyebrow" data-a="1">The route · click a phase</p>
-    <h2 data-a="2">Cheap first. Decisive early. <em>Expensive last.</em></h2>
+    <p class="eyebrow" data-a="1">The plan · click a phase for its checkpoints</p>
+    <h2 data-a="2">Four phases, each ending in a <em>checkpoint</em> that can fail.</h2>
   </div>
   <div class="stage">
     <div class="tl" id="tl" data-a="3">
@@ -599,7 +669,7 @@ svg{display:block;width:100%;height:auto;overflow:visible}
       <div class="ph" data-p="3"><div class="n">phase 3</div><h3>Both juries</h3><p>VBench + Cityscapes, control arms.</p><div class="st q"><i></i>queued</div></div>
     </div>
     <div class="ck" id="ck" data-a="4"></div>
-    <div class="note" data-a="5">Gate rule, fixed before the run: had the re-based model merely matched scratch, the thesis died there. It cleared the gate on the proxy loss, on rollout drift, and on VBench-2.0.</div>
+    <div class="note" data-a="5">The gate rule was fixed before the run: had the re-based model merely matched scratch, the thesis died there. It cleared on the training loss, on rollout drift, and on VBench-2.0.</div>
   </div>
 </section>
 
@@ -612,8 +682,8 @@ svg{display:block;width:100%;height:auto;overflow:visible}
   <div class="stage">
     <div class="row r2" data-a="3">
       <div class="c k rv" data-rv><div class="cue">+</div><span class="t">Renderer ceiling · live</span>
-        <h3>The 128px decoder caps dynamic degree at 0.09</h3>
-        <div class="more"><p><b>Exit:</b> re-render with the 224px decoder (running now). Should the ceiling stay low, forecasting carries the claim, since it needs no renderer at all.</p></div></div>
+        <h3>The renderer bounds every generation score we can report</h3>
+        <div class="more"><p><b>Exit:</b> score a ground-truth-rendered control set to expose the ceiling, and re-render at 224px (running now). Forecasting stays available as the primary claim, since it bypasses the renderer entirely.</p></div></div>
       <div class="c k rv" data-rv><div class="cue">+</div><span class="t">Readout resolution</span>
         <h3>A tightly folded state may be too coarse for segmentation</h3>
         <div class="more"><p><b>Exit:</b> the prior-shaped state doubles the readout grid and already wins on LPIPS and DINO-perceptual reconstruction.</p></div></div>
@@ -722,6 +792,24 @@ function fpick(k){const c=F[k];fins.innerHTML='<span class="t">'+c[0]+'</span><h
 fpick('s1');
 document.querySelectorAll('#foldfig .hit').forEach(n=>n.onclick=()=>{
   document.querySelectorAll('#foldfig .hit').forEach(m=>m.classList.remove('sel'));n.classList.add('sel');fpick(n.dataset.f);});
+
+const W={
+ e1:['input','Open-domain video','16 frames per window: 4 of context, 12 to predict. Trained on OpenVid-1M, 75,807 windows.'],
+ e2:['encode · frozen','DINOv3-L, per frame, layers mixed','Several intermediate layers are aggregated with the final one, giving a 14×14 grid of 1024-d features per frame. The extractor never updates, so the latent space is fixed for every experiment.'],
+ e3:['ours · component 1','The linear fold','One strided linear map downsamples 2×2 in space and 2× in time and projects to C channels. Linear on purpose: it compresses the feature geometry and preserves it. Reconstruction cosine 0.936.'],
+ z:['the state','z — what the world model predicts','8 latent frames on a 7×7 grid with C channels: 256× smaller than the raw features, and short enough for a 5B transformer to attend over.'],
+ wm:['ours · component 2 ★','The re-based prior','A 5B video diffusion transformer lifted out of its pixel-VAE latent: 30 blocks arrive pretrained, the input and output projections are new. Frame-causal attention and per-frame noise levels make it autoregressive; flow matching is the objective.'],
+ zh:['output of the rollout','ẑ — the predicted future','Denoise the next latent frame under the causal past, append it, roll the window forward. One sample of ẑ feeds both exits below.'],
+ d1:['decode · step 1','Spatial upsampling','The fold is inverted in space first: the 7×7 latent grid is restored to the 14×14 feature resolution.'],
+ d2:['decode · step 2','Causal spatio-temporal transformer','A causal ViT over space and time reconstructs the video from the upsampled states. Causal, so the renderer streams alongside the rollout.'],
+ d3:['decode · step 3','Temporal upsampling','The 2× temporal fold is inverted last, restoring the original frame rate: 8 latent frames become 16 video frames.'],
+ out:['exit A','Video','Rendered pixels, scored on VBench-2.0 and WorldScore.'],
+ read:['exit B','Scene','Frozen readout heads take the reconstructed features directly — future segmentation and depth, with the renderer bypassed entirely. This is the sturdiest evidence in the whole system.']};
+const fwins=document.getElementById('fwins');
+function wpick(k){const c=W[k];fwins.innerHTML='<span class="t">'+c[0]+'</span><h3>'+c[1]+'</h3><p>'+c[2]+'</p>';}
+wpick('e1');
+document.querySelectorAll('#fw .hit').forEach(n=>n.onclick=()=>{
+  document.querySelectorAll('#fw .hit').forEach(m=>m.classList.remove('sel'));n.classList.add('sel');wpick(n.dataset.w);});
 
 const V={a:{i:'input projection — NEW',o:'output projection — NEW',f:'90% of weights arrive pretrained',
   c:'var(--coral)',ct:'var(--coral-d)',bg:'var(--coral-f)',d:'6 4',t:'Tight state',
