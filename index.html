@@ -1,0 +1,994 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>RAVEN — Re-basing a Video Prior into Representation Space</title>
+<meta name="description" content="A world model that lives in a frozen DINOv3 representation space, initialized by transplanting a web-scale video diffusion prior out of its native pixel-VAE latent space.">
+<style>
+:root{
+  --stone:#E8E4DC;      /* canvas */
+  --stone-2:#DCD7CD;    /* raised */
+  --ink:#2B2F2C;        /* text */
+  --ink-2:#5B615C;      /* muted */
+  --ink-3:#8B908A;      /* faint */
+  --sage:#8FA093;       /* representation space */
+  --sage-d:#6E8175;
+  --clay:#BE9A90;       /* the prior / transfer */
+  --clay-d:#A47C72;
+  --slate:#7E93A3;      /* pixel space */
+  --slate-d:#61798A;
+  --sand:#C9BFAE;
+  --line:rgba(43,47,44,.14);
+  --line-2:rgba(43,47,44,.28);
+  --serif:"Iowan Old Style","Palatino Linotype",Palatino,"Book Antiqua",Georgia,serif;
+  --sans:"Inter","Helvetica Neue",-apple-system,BlinkMacSystemFont,"Segoe UI",Arial,sans-serif;
+  --mono:ui-monospace,"SF Mono","JetBrains Mono",Menlo,Consolas,monospace;
+  --pad:clamp(28px,4.2vw,76px);
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%}
+body{
+  background:var(--stone);color:var(--ink);font-family:var(--sans);
+  -webkit-font-smoothing:antialiased;overflow:hidden;
+}
+body::before{ /* paper grain */
+  content:"";position:fixed;inset:0;pointer-events:none;z-index:99;opacity:.35;
+  background-image:radial-gradient(circle at 1px 1px,rgba(43,47,44,.07) 1px,transparent 0);
+  background-size:4px 4px;mix-blend-mode:multiply;
+}
+
+/* ---------- deck shell ---------- */
+.deck{position:relative;height:100vh;width:100vw}
+.slide{
+  position:absolute;inset:0;padding:var(--pad) var(--pad) 62px;
+  display:none;flex-direction:column;overflow:hidden;
+}
+.slide.is-active{display:flex;animation:rise .5s cubic-bezier(.2,.7,.25,1) both}
+@keyframes rise{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:none}}
+.slide > * {flex:none}
+
+/* progress + chrome */
+.rail{position:fixed;left:0;right:0;bottom:0;height:56px;display:flex;align-items:center;
+  gap:18px;padding:0 var(--pad);border-top:1px solid var(--line);
+  background:linear-gradient(to top,var(--stone) 60%,rgba(232,228,220,0));z-index:60}
+.rail__id{font:500 11px/1 var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--ink-3);white-space:nowrap}
+.dots{display:flex;gap:6px;flex:1;align-items:center}
+.dot{width:100%;max-width:44px;height:3px;border:0;padding:0;background:var(--line-2);
+  border-radius:2px;cursor:pointer;transition:background .3s,transform .2s}
+.dot:hover{transform:scaleY(2.2)}
+.dot.on{background:var(--clay-d)}
+.dot:focus-visible{outline:2px solid var(--sage-d);outline-offset:3px}
+.nav{display:flex;gap:8px}
+.nav button{font:500 11px/1 var(--mono);letter-spacing:.1em;text-transform:uppercase;
+  background:none;border:1px solid var(--line-2);color:var(--ink-2);
+  padding:8px 12px;border-radius:100px;cursor:pointer;transition:.2s}
+.nav button:hover{background:var(--ink);color:var(--stone);border-color:var(--ink)}
+
+/* ---------- type ---------- */
+.eyebrow{font:500 11px/1 var(--mono);letter-spacing:.22em;text-transform:uppercase;color:var(--clay-d);margin-bottom:16px}
+h1{font-family:var(--serif);font-weight:400;font-size:clamp(38px,5.6vw,78px);line-height:1.02;letter-spacing:-.02em}
+h2{font-family:var(--serif);font-weight:400;font-size:clamp(27px,3.3vw,44px);line-height:1.1;letter-spacing:-.015em;margin-bottom:10px}
+h2 em{font-style:italic;color:var(--clay-d)}
+h3{font-size:15px;font-weight:600;letter-spacing:-.005em;margin-bottom:6px}
+.lede{font-family:var(--serif);font-size:clamp(16px,1.35vw,20px);line-height:1.5;color:var(--ink-2);max-width:74ch}
+p,li{font-size:14.5px;line-height:1.55;color:var(--ink-2)}
+strong{color:var(--ink);font-weight:600}
+.k{font-family:var(--mono);font-size:12.5px;background:var(--stone-2);padding:1px 6px;border-radius:4px;color:var(--ink)}
+.hd{display:flex;align-items:baseline;justify-content:space-between;gap:24px;margin-bottom:clamp(16px,2.4vh,30px);border-bottom:1px solid var(--line);padding-bottom:14px}
+.hd p{max-width:46ch;font-size:13.5px}
+.body{flex:1;min-height:0;display:flex;flex-direction:column;justify-content:center}
+
+/* ---------- title slide ---------- */
+.hero{display:grid;grid-template-columns:1.15fr .85fr;gap:clamp(30px,5vw,80px);align-items:center;height:100%}
+.hero h1 em{font-style:italic;color:var(--clay-d)}
+.hero .lede{margin-top:22px}
+.stamp{display:flex;gap:10px;margin-top:30px;flex-wrap:wrap}
+.stamp span{font:500 10.5px/1 var(--mono);letter-spacing:.12em;text-transform:uppercase;
+  border:1px solid var(--line-2);border-radius:100px;padding:7px 12px;color:var(--ink-2)}
+.stamp span.hot{border-color:var(--clay);color:var(--clay-d);background:rgba(190,154,144,.1)}
+
+/* ---------- generic cards ---------- */
+.grid{display:grid;gap:14px}
+.g2{grid-template-columns:repeat(2,1fr)}
+.g3{grid-template-columns:repeat(3,1fr)}
+.g4{grid-template-columns:repeat(4,1fr)}
+.card{background:rgba(255,255,255,.42);border:1px solid var(--line);border-radius:14px;
+  padding:18px 20px;transition:.28s cubic-bezier(.2,.7,.25,1)}
+.card:hover{background:rgba(255,255,255,.78);transform:translateY(-3px);box-shadow:0 12px 30px -18px rgba(43,47,44,.45)}
+.card .tag{font:500 10px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3);margin-bottom:10px;display:block}
+.card.bad{border-left:3px solid var(--slate)}
+.card.good{border-left:3px solid var(--sage-d)}
+.card.prior{border-left:3px solid var(--clay-d)}
+
+/* click-to-reveal */
+.reveal{cursor:pointer;position:relative}
+.reveal .more{max-height:0;opacity:0;overflow:hidden;transition:max-height .45s cubic-bezier(.2,.7,.25,1),opacity .3s,margin .3s}
+.reveal.open .more{max-height:260px;opacity:1;margin-top:12px}
+.reveal .cue{position:absolute;right:16px;top:16px;width:18px;height:18px;border-radius:50%;
+  border:1px solid var(--line-2);display:grid;place-items:center;font:600 11px/1 var(--mono);color:var(--ink-3);transition:.3s}
+.reveal:hover .cue{border-color:var(--clay);color:var(--clay-d)}
+.reveal.open .cue{background:var(--clay-d);border-color:var(--clay-d);color:var(--stone);transform:rotate(45deg)}
+.more p{font-size:13px;border-top:1px dashed var(--line-2);padding-top:11px}
+.more .src{display:block;margin-top:8px;font:500 10.5px/1.4 var(--mono);letter-spacing:.06em;color:var(--clay-d);text-transform:uppercase}
+
+/* ---------- tables ---------- */
+table{width:100%;border-collapse:collapse}
+th,td{text-align:left;padding:11px 14px;font-size:13.2px;border-bottom:1px solid var(--line);color:var(--ink-2)}
+th{font:500 10px/1 var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--ink-3)}
+td strong{color:var(--ink)}
+tr.us td{background:rgba(190,154,144,.13)}
+tr.us td:first-child{color:var(--clay-d);font-weight:600}
+.num{font-family:var(--mono);text-align:right}
+.win{color:var(--sage-d);font-weight:600}
+
+/* ---------- svg diagram bits ---------- */
+svg{display:block;width:100%;height:auto;overflow:visible}
+.n-lab{font:500 11px var(--sans);fill:var(--ink)}
+.n-sub{font:400 10px var(--mono);fill:var(--ink-3)}
+.n-box{fill:rgba(255,255,255,.6);stroke:var(--line-2);stroke-width:1;rx:9}
+.hit{cursor:pointer}
+.hit .n-box{transition:.25s}
+.hit:hover .n-box{fill:#fff;stroke:var(--clay-d)}
+.hit.sel .n-box{fill:#fff;stroke:var(--clay-d);stroke-width:2}
+.flow{stroke:var(--line-2);stroke-width:1.4;fill:none;marker-end:url(#ar)}
+.flow.hot{stroke:var(--clay-d);stroke-width:2}
+.dash{stroke-dasharray:4 4}
+
+/* pipeline inspector */
+.inspect{margin-top:14px;border-top:1px solid var(--line);padding-top:14px;min-height:74px}
+.inspect .tag{font:500 10px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--clay-d)}
+.inspect h3{margin:8px 0 4px}
+.inspect p{max-width:92ch}
+
+/* toggle */
+.toggle{display:inline-flex;border:1px solid var(--line-2);border-radius:100px;padding:3px;gap:3px;background:rgba(255,255,255,.4)}
+.toggle button{font:500 11px/1 var(--mono);letter-spacing:.08em;text-transform:uppercase;border:0;background:none;
+  color:var(--ink-2);padding:8px 14px;border-radius:100px;cursor:pointer;transition:.22s}
+.toggle button.on{background:var(--ink);color:var(--stone)}
+
+/* timeline */
+.tl{display:grid;grid-template-columns:repeat(4,1fr);gap:0;margin-top:6px}
+.ph{position:relative;padding:22px 18px 18px;border-left:1px solid var(--line-2);cursor:pointer;transition:.28s}
+.ph:first-child{border-left:0}
+.ph:hover,.ph.on{background:rgba(255,255,255,.6)}
+.ph.on{box-shadow:inset 0 2px 0 var(--clay-d)}
+.ph .p-id{font:500 10px/1 var(--mono);letter-spacing:.18em;color:var(--ink-3);text-transform:uppercase}
+.ph h3{margin-top:9px}
+.ph .st{display:inline-flex;align-items:center;gap:6px;margin-top:10px;font:500 10px/1 var(--mono);letter-spacing:.1em;text-transform:uppercase}
+.st .d{width:6px;height:6px;border-radius:50%}
+.st.done{color:var(--sage-d)} .st.done .d{background:var(--sage-d)}
+.st.now{color:var(--clay-d)} .st.now .d{background:var(--clay-d);animation:pulse 1.8s infinite}
+.st.next{color:var(--ink-3)} .st.next .d{background:var(--ink-3)}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.25}}
+.ck{margin-top:14px;border-top:1px solid var(--line);padding-top:12px}
+.ck li{list-style:none;font-size:12.6px;padding:4px 0 4px 16px;position:relative}
+.ck li::before{content:"";position:absolute;left:0;top:11px;width:6px;height:6px;border:1px solid var(--ink-3);border-radius:2px}
+.ck li.ok::before{background:var(--sage-d);border-color:var(--sage-d)}
+.gate{margin-top:auto;display:flex;gap:12px;align-items:center;border-top:1px solid var(--line);padding-top:14px}
+.gate .pill{font:500 10.5px/1 var(--mono);letter-spacing:.12em;text-transform:uppercase;padding:8px 12px;border-radius:6px;
+  background:rgba(143,160,147,.22);color:var(--sage-d);white-space:nowrap}
+.gate p{font-size:13px}
+
+/* metric strip */
+.metrics{display:grid;grid-template-columns:repeat(4,1fr);gap:1px;background:var(--line);border:1px solid var(--line);border-radius:12px;overflow:hidden}
+.metric{background:rgba(255,255,255,.5);padding:18px 20px}
+.metric .v{font-family:var(--serif);font-size:clamp(26px,2.8vw,38px);line-height:1;color:var(--ink)}
+.metric .v small{font-size:14px;color:var(--sage-d);font-family:var(--mono);margin-left:6px}
+.metric .l{margin-top:8px;font:500 10px/1.4 var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--ink-3)}
+.honest{margin-top:14px;border-left:3px solid var(--slate);background:rgba(126,147,163,.1);padding:14px 18px;border-radius:0 10px 10px 0}
+.honest p{font-size:13px}
+
+/* closing */
+.close{display:grid;grid-template-columns:1fr 1fr;gap:clamp(24px,4vw,64px);align-items:center;height:100%}
+.claim{border-top:2px solid var(--ink);padding-top:18px}
+.claim + .claim{margin-top:22px}
+.claim span{font:500 10px/1 var(--mono);letter-spacing:.18em;text-transform:uppercase;color:var(--ink-3)}
+.claim h3{font-family:var(--serif);font-weight:400;font-size:clamp(19px,1.9vw,26px);margin-top:10px}
+
+.hint{position:fixed;right:var(--pad);top:22px;z-index:60;font:500 10px/1 var(--mono);letter-spacing:.14em;
+  text-transform:uppercase;color:var(--ink-3);opacity:.9}
+@media (max-width:900px){
+  .hero,.close{grid-template-columns:1fr;gap:24px}
+  .g3,.g4,.metrics,.tl{grid-template-columns:1fr 1fr}
+  body{overflow:auto}.slide{position:relative;display:none}.deck{height:auto}
+  .slide.is-active{min-height:100vh}
+  .ph{border-left:0;border-top:1px solid var(--line-2)}
+}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+</style>
+</head>
+<body>
+<div class="hint" id="hint">← → to move</div>
+<main class="deck" id="deck">
+
+<!-- 1 ───────────────────────────── TITLE -->
+<section class="slide is-active" data-id="RAVEN">
+  <div class="hero">
+    <div>
+      <p class="eyebrow">Video world models · representation space</p>
+      <h1>A video prior<br>does not belong<br>to <em>its</em> latent space.</h1>
+      <p class="lede">We take a web-scale video diffusion model, lift it out of the pixel-VAE latent space it was trained in, and re-base it into a frozen DINOv3 representation space — where one model both <strong>generates</strong> video and <strong>predicts</strong> the semantic future without drifting.</p>
+      <div class="stamp">
+        <span class="hot">Single mechanism: latent re-basing</span>
+        <span>DINOv3-L · frozen</span>
+        <span>Wan2.2-TI2V-5B · 30 blocks kept</span>
+        <span>OpenVid-1M</span>
+      </div>
+    </div>
+    <div>
+      <svg viewBox="0 0 420 340" aria-label="A stack of pretrained transformer blocks being moved from a pixel latent space into a representation latent space">
+        <defs>
+          <marker id="ar" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto">
+            <path d="M0,0 L7,3.5 L0,7 z" fill="var(--ink-3)"/>
+          </marker>
+          <marker id="arc" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto">
+            <path d="M0,0 L7,3.5 L0,7 z" fill="var(--clay-d)"/>
+          </marker>
+        </defs>
+        <!-- left basin: pixel space -->
+        <ellipse cx="90" cy="270" rx="82" ry="26" fill="rgba(126,147,163,.18)" stroke="var(--slate)" stroke-dasharray="3 4"/>
+        <text x="90" y="312" text-anchor="middle" class="n-sub">pixel-VAE latent</text>
+        <text x="90" y="326" text-anchor="middle" class="n-sub" style="fill:var(--slate-d)">drifts · unreadable</text>
+        <!-- right basin: representation space -->
+        <ellipse cx="330" cy="270" rx="82" ry="26" fill="rgba(143,160,147,.22)" stroke="var(--sage-d)"/>
+        <text x="330" y="312" text-anchor="middle" class="n-sub">DINOv3 representation</text>
+        <text x="330" y="326" text-anchor="middle" class="n-sub" style="fill:var(--sage-d)">smooth · readable</text>
+        <!-- block stack, arcing across -->
+        <g id="stk">
+          <g transform="translate(0,0)">
+            <rect x="152" y="34" width="116" height="17" rx="4" fill="var(--clay)" opacity=".95"/>
+            <rect x="152" y="55" width="116" height="17" rx="4" fill="var(--clay)" opacity=".85"/>
+            <rect x="152" y="76" width="116" height="17" rx="4" fill="var(--clay)" opacity=".75"/>
+            <rect x="152" y="97" width="116" height="17" rx="4" fill="var(--clay)" opacity=".65"/>
+            <rect x="152" y="118" width="116" height="17" rx="4" fill="var(--clay)" opacity=".55"/>
+            <text x="210" y="20" text-anchor="middle" class="n-lab" style="fill:var(--clay-d)">30 pretrained blocks</text>
+            <text x="210" y="152" text-anchor="middle" class="n-sub">the prior — kept intact</text>
+          </g>
+        </g>
+        <!-- sockets -->
+        <rect x="152" y="172" width="116" height="22" rx="5" fill="none" stroke="var(--ink-2)" stroke-dasharray="4 3"/>
+        <text x="210" y="187" text-anchor="middle" class="n-sub">I/O sockets — swapped</text>
+        <path d="M150 200 C 110 224, 96 232, 92 244" class="flow dash"/>
+        <path d="M270 200 C 310 224, 324 232, 328 244" stroke="var(--clay-d)" stroke-width="1.8" fill="none" marker-end="url(#arc)"/>
+      </svg>
+    </div>
+  </div>
+</section>
+
+<!-- 2 ───────────────────────────── PER-FRAME ENCODER -->
+<section class="slide" data-id="Setup">
+  <div class="hd">
+    <div>
+      <p class="eyebrow">Where this starts</p>
+      <h2>DINOv3 sees a frame perfectly. It has never seen <em>time</em>.</h2>
+    </div>
+    <p>A per-frame image encoder hands us clean, linearly-probeable state for every frame — for free, frozen. The open question is what to put <em>between</em> the frames.</p>
+  </div>
+  <div class="body">
+    <svg viewBox="0 0 1100 250" aria-label="Frames encoded independently by DINOv3 into per-frame feature grids, with no temporal model between them">
+      <g>
+        <text x="0" y="16" class="n-sub" style="fill:var(--sage-d)">FROZEN PER-FRAME ENCODER · gives us this for free</text>
+        <!-- frames -->
+        <g id="fr">
+          <rect x="0" y="36" width="86" height="62" rx="6" fill="var(--stone-2)" stroke="var(--line-2)"/>
+          <rect x="118" y="36" width="86" height="62" rx="6" fill="var(--stone-2)" stroke="var(--line-2)"/>
+          <rect x="236" y="36" width="86" height="62" rx="6" fill="var(--stone-2)" stroke="var(--line-2)"/>
+          <rect x="354" y="36" width="86" height="62" rx="6" fill="var(--stone-2)" stroke="var(--line-2)"/>
+          <text x="43" y="72" text-anchor="middle" class="n-sub">I₁</text>
+          <text x="161" y="72" text-anchor="middle" class="n-sub">I₂</text>
+          <text x="279" y="72" text-anchor="middle" class="n-sub">I₃</text>
+          <text x="397" y="72" text-anchor="middle" class="n-sub">I₄</text>
+        </g>
+        <path d="M43 104 L43 128" class="flow"/><path d="M161 104 L161 128" class="flow"/>
+        <path d="M279 104 L279 128" class="flow"/><path d="M397 104 L397 128" class="flow"/>
+        <!-- feature grids -->
+        <g>
+          <rect x="8" y="136" width="70" height="70" rx="4" fill="rgba(143,160,147,.28)" stroke="var(--sage-d)"/>
+          <rect x="126" y="136" width="70" height="70" rx="4" fill="rgba(143,160,147,.28)" stroke="var(--sage-d)"/>
+          <rect x="244" y="136" width="70" height="70" rx="4" fill="rgba(143,160,147,.28)" stroke="var(--sage-d)"/>
+          <rect x="362" y="136" width="70" height="70" rx="4" fill="rgba(143,160,147,.28)" stroke="var(--sage-d)"/>
+          <text x="220" y="232" text-anchor="middle" class="n-sub">14 × 14 × 1024 per frame — semantic, smooth, linearly readable</text>
+        </g>
+        <!-- the gap -->
+        <line x1="480" y1="30" x2="480" y2="240" stroke="var(--line-2)" stroke-dasharray="5 5"/>
+        <g class="hit" id="gapNode">
+          <rect x="530" y="70" width="230" height="104" rx="12" fill="rgba(190,154,144,.14)" stroke="var(--clay-d)" stroke-dasharray="6 4"/>
+          <text x="645" y="112" text-anchor="middle" class="n-lab" style="fill:var(--clay-d);font-size:14px">?</text>
+          <text x="645" y="136" text-anchor="middle" class="n-lab">what goes between frames</text>
+          <text x="645" y="154" text-anchor="middle" class="n-sub">the entire problem</text>
+        </g>
+        <text x="530" y="46" class="n-sub" style="fill:var(--clay-d)">NOT GIVEN · must be learned</text>
+        <!-- consequences -->
+        <g>
+          <text x="820" y="46" class="n-sub">WHAT A FRAME STACK CANNOT DO</text>
+          <text x="820" y="78" class="n-lab">✗ roll forward into an unseen future</text>
+          <text x="820" y="106" class="n-lab">✗ stay coherent past a few seconds</text>
+          <text x="820" y="134" class="n-lab">✗ turn back into watchable video</text>
+          <text x="820" y="162" class="n-lab">✗ carry a distribution, not one guess</text>
+        </g>
+      </g>
+    </svg>
+    <p class="lede" style="margin-top:26px">Concatenating frame features is not a video representation. <strong>A video representation is a state you can roll forward.</strong> That is the object we are trying to build.</p>
+  </div>
+</section>
+
+<!-- 3 ───────────────────────────── TASK -->
+<section class="slide" data-id="Task">
+  <div class="hd">
+    <div>
+      <p class="eyebrow">The task</p>
+      <h2>Build a latent state that is <em>compact</em>, <em>rollable</em>, and <em>double-readable</em>.</h2>
+    </div>
+    <p>Formally: learn <span class="k">p<sub>θ</sub>(z<sub>c+1:T</sub> | z<sub>1:c</sub>)</span> over a latent that a frozen per-frame encoder defines — such that one sample decodes to pixels <em>and</em> reads out as semantics.</p>
+  </div>
+  <div class="body">
+    <div class="grid g3" style="margin-bottom:20px">
+      <div class="card good"><span class="tag">Requirement 01</span><h3>Compact enough to model</h3><p>Raw frame features are enormous and redundant. A learned <strong>linear bottleneck</strong> folds every 2×2×2 patch of features into one latent vector — 256× smaller, and short enough for a transformer to attend over.</p></div>
+      <div class="card good"><span class="tag">Requirement 02</span><h3>Smooth enough to roll</h3><p>Autoregression compounds error. In a frozen self-supervised space, nearby states map to nearby latents, so a slightly-wrong prediction is still a <strong>valid</strong> state — the error gets absorbed instead of amplified.</p></div>
+      <div class="card good"><span class="tag">Requirement 03</span><h3>Rich enough to read twice</h3><p>The same latent must decode to <strong>video</strong> (a generator) and, through frozen readout heads, to <strong>segmentation and depth</strong> (a predictor). One state, two exits.</p></div>
+    </div>
+    <div class="card" style="background:rgba(255,255,255,.62)">
+      <span class="tag">One paragraph</span>
+      <p style="font-family:var(--serif);font-size:17px;line-height:1.6;color:var(--ink)">Given a video stream, a frozen DINOv3 encoder <span class="k">E</span> produces per-frame features. A learned codec <span class="k">(B, G)</span> compresses them into a compact latent <span class="k">z</span> and decodes them back. On that latent we train a world model <span class="k">p<sub>θ</sub>(z<sub>c+1:T</sub> | z<sub>1:c</sub>)</span> — a <em>distribution</em> over the future, learned with flow matching, made autoregressive with a causal mask and per-frame noise levels. A single rollout is then evaluated on three orthogonal axes: <strong>generation</strong> (decode to pixels → VBench-2.0), <strong>prediction</strong> (frozen readout → future mIoU / depth), and <strong>drift</strong> (long-horizon error growth). Everything hinges on one design choice: <em>where the latent lives, and what initializes the model on top of it.</em></p>
+    </div>
+  </div>
+</section>
+
+<!-- 4 ───────────────────────────── CHALLENGE -->
+<section class="slide" data-id="Challenge">
+  <div class="hd">
+    <div>
+      <p class="eyebrow">Why this is hard</p>
+      <h2>Both existing routes are broken — including <em>ours</em>.</h2>
+    </div>
+    <p>The field has a generator that lives in the wrong space, and a predictor that has no prior. We hit the wall ourselves before we understood why.</p>
+  </div>
+  <div class="body">
+    <div class="grid g2" style="gap:16px">
+      <div class="card bad">
+        <span class="tag">Route A — pixel-latent generators</span>
+        <h3>Web-scale, but predicting in a space built for reconstruction</h3>
+        <p>Wan, CogVideoX and friends predict inside a VAE latent optimized for pixel fidelity, not for dynamics or semantics. Long autoregressive rollouts degrade into warped texture, and nothing in the latent can be read out as a scene.</p>
+      </div>
+      <div class="card bad">
+        <span class="tag">Route B — representation-space world models</span>
+        <h3>Right space, no prior, narrow domain</h3>
+        <p>Recent feature-space world models are robust but <strong>trained from scratch</strong> on one domain — driving, or a single game. They cannot reach the general visual knowledge that lives inside a web-scale video model.</p>
+      </div>
+      <div class="card bad">
+        <span class="tag">Route C — the split</span>
+        <h3>Generation and prediction are two different systems</h3>
+        <p>Generators cannot predict robustly; feature predictors (DINO-world, DINO-Foresight) are deterministic regressors and cannot generate. No single model does both — so no single model can be checked on both.</p>
+      </div>
+      <div class="card prior">
+        <span class="tag">Our own wall — measured, not argued</span>
+        <h3>A 100M from-scratch representation WM collapses to the mean</h3>
+        <p>We exhaustively swept the parameterization axis (predict the change vs. predict the state). VBench-2.0 was brutal: the change-form goes <strong>static</strong> (dynamic degree 0.000), the state-form goes <strong>incoherent</strong> (subject consistency 0.594). Scaling capacity improved latent metrics while destroying downstream control.</p>
+        <p style="margin-top:10px"><strong>Conclusion that redirected the project:</strong> the missing ingredient is not the parameterization. It is the prior.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- 5 ───────────────────────────── INSIGHT -->
+<section class="slide" data-id="Insight">
+  <div class="hd">
+    <div>
+      <p class="eyebrow">Insight — click any card for the inspiration behind it</p>
+      <h2>Pretraining was applied to the encoder. Nobody applied it to the <em>generator</em>.</h2>
+    </div>
+    <p>Frozen-encoder world models call themselves "pretrained." Only half of them is. The dynamics model on top is still born from noise.</p>
+  </div>
+  <div class="body">
+    <div class="grid g3">
+      <div class="card reveal good" data-r>
+        <div class="cue">+</div>
+        <span class="tag">Insight 01 · about the space</span>
+        <h3>Robustness is a property of the space, not of the trainer</h3>
+        <p>Drift resistance comes from the <strong>smoothness</strong> of frozen self-supervised features: an imperfect prediction still lands on a plausible state. That property holds for <em>any</em> model running in that space.</p>
+        <div class="more">
+          <p><strong>Therefore</strong> — a generator does not have to be trained from scratch to inherit robustness. It only has to be <em>moved into</em> the space. This is what makes transplantation thinkable at all.</p>
+          <span class="src">Inspiration · frozen-feature drift analyses; the "errors get absorbed" mechanism</span>
+        </div>
+      </div>
+      <div class="card reveal prior" data-r>
+        <div class="cue">+</div>
+        <span class="tag">Insight 02 · about the prior</span>
+        <h3>A video prior is knowledge about <em>change</em>, not about channels</h3>
+        <p>What a video diffusion model learned — objects persist, motion is smooth, scenes stay consistent — is knowledge about how the visual world evolves. There is no reason it should be welded to the channel semantics of one particular VAE.</p>
+        <div class="more">
+          <p><strong>Therefore</strong> — swap the input and output projections, keep the transformer blocks, and the knowledge should survive the move. This is the falsifiable core of the project.</p>
+          <span class="src">Inspiration · representation autoencoders for image diffusion; frozen-encoder latents shown to be generatable</span>
+        </div>
+      </div>
+      <div class="card reveal good" data-r>
+        <div class="cue">+</div>
+        <span class="tag">Insight 03 · about the two jobs</span>
+        <h3>Generation and prediction disagree on compression, not on space</h3>
+        <p>Our negative result showed the two abilities want different parameterizations. But they can share <em>one</em> space — and trade off along a single dial: <strong>how much we compress it</strong>.</p>
+        <div class="more">
+          <p><strong>Therefore</strong> — do not choose. Keep one mechanism and expose compression as a knob: tight latents for generation, high-resolution latents for readout. Slide 10 turns this into a testable prediction.</p>
+          <span class="src">Inspiration · our own measured collapse — the change/state axis, exhausted</span>
+        </div>
+      </div>
+    </div>
+    <div class="gate" style="margin-top:26px">
+      <span class="pill">The thesis</span>
+      <p style="font-family:var(--serif);font-size:17px;color:var(--ink)">A web-scale video diffusion prior can be <strong>re-based</strong> out of its native pixel-VAE latent space into a frozen-DINOv3 representation space — and it will <strong>carry its dynamics knowledge with it</strong>. If true, every frontier video model is a world model waiting to be relocated.</p>
+    </div>
+  </div>
+</section>
+
+<!-- 6 ───────────────────────────── NOVELTY -->
+<section class="slide" data-id="Novelty">
+  <div class="hd">
+    <div>
+      <p class="eyebrow">Position</p>
+      <h2>One new mechanism. Everything else is deliberately borrowed.</h2>
+    </div>
+    <p>This is not a system paper. It is a single falsifiable question with the minimum apparatus needed to answer it.</p>
+  </div>
+  <div class="body">
+    <table>
+      <thead><tr><th>Line of work</th><th>Prediction space</th><th>Where the generator comes from</th><th>Domain</th><th>What we do differently</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Wan · CogVideoX</strong></td><td>pixel-VAE latent</td><td>web-scale pretraining</td><td>open-domain generation</td><td>We <em>re-base</em> that prior into representation space to buy drift-robustness and readout</td></tr>
+        <tr><td><strong>Feature-space world models</strong></td><td>raw DINOv3 features</td><td>small DiT, from scratch</td><td>driving</td><td>We bring a web-scale prior, a compact codec, and generation</td></tr>
+        <tr><td><strong>DINO-world · DINO-Foresight</strong></td><td>DINO features</td><td>deterministic regression</td><td>prediction only</td><td>We are generative, transplanted, and can also render</td></tr>
+        <tr><td><strong>Representation autoencoders</strong></td><td>RAE latent</td><td>image T2I diffusion</td><td>image generation</td><td>We move a <em>video</em> prior, and build a world model on it</td></tr>
+        <tr class="us"><td>RAVEN (ours)</td><td>frozen-DINOv3 RAE latent</td><td><strong>transplanted</strong> — 30 Wan blocks kept</td><td>open-domain</td><td><strong>Latent re-basing</strong> — the single new mechanism</td></tr>
+      </tbody>
+    </table>
+    <div class="grid g3" style="margin-top:22px">
+      <div class="card prior"><span class="tag">Architectural</span><h3>Sockets swap, body stays</h3><p>New input conv, new output projection, learned null context. ≥90% of parameters arrive pretrained.</p></div>
+      <div class="card prior"><span class="tag">Methodological</span><h3>Causality retrofitted</h3><p>A full-attention video DiT is converted into a frame-causal, per-frame-noise-level model that can stream.</p></div>
+      <div class="card prior"><span class="tag">Strategic</span><h3>The control arm <em>is</em> the paper</h3><p>Wan-init vs. scratch-init, identical everything else. Either answer is a result worth publishing.</p></div>
+    </div>
+  </div>
+</section>
+
+<!-- 7 ───────────────────────────── NEW EVAL -->
+<section class="slide" data-id="Protocol">
+  <div class="hd">
+    <div>
+      <p class="eyebrow">New evaluation setting</p>
+      <h2>One rollout. Three exits. <em>Nobody currently passes all three.</em></h2>
+    </div>
+    <p>The claim "single model, dual capability" is only interesting if it is checkable. So we make the same rollout answer to two independent authoritative benchmark families — plus one honest failure axis.</p>
+  </div>
+  <div class="body">
+    <svg viewBox="0 0 1100 240" aria-label="A single rollout feeding three evaluation exits: generation, prediction, and physics">
+      <g class="hit">
+        <rect x="0" y="86" width="190" height="66" rx="10" fill="rgba(190,154,144,.18)" stroke="var(--clay-d)"/>
+        <text x="95" y="112" text-anchor="middle" class="n-lab">one AR rollout</text>
+        <text x="95" y="132" text-anchor="middle" class="n-sub">ẑ · same weights, same sample</text>
+      </g>
+      <path d="M190 106 C 240 106, 250 52, 300 52" class="flow"/>
+      <path d="M190 119 L300 119" class="flow"/>
+      <path d="M190 132 C 240 132, 250 190, 300 190" class="flow"/>
+
+      <g><rect x="300" y="22" width="200" height="60" rx="10" class="n-box"/>
+        <text x="316" y="46" class="n-lab">pixel decoder</text><text x="316" y="66" class="n-sub">latent → video</text></g>
+      <g><rect x="300" y="89" width="200" height="60" rx="10" class="n-box"/>
+        <text x="316" y="113" class="n-lab">feature decoder + frozen head</text><text x="316" y="133" class="n-sub">latent → segmentation / depth</text></g>
+      <g><rect x="300" y="160" width="200" height="60" rx="10" class="n-box"/>
+        <text x="316" y="184" class="n-lab">decoder-free surprise</text><text x="316" y="204" class="n-sub">flow error → score</text></g>
+
+      <path d="M500 52 L600 52" class="flow hot"/><path d="M500 119 L600 119" class="flow hot"/><path d="M500 190 L600 190" class="flow"/>
+
+      <g><rect x="600" y="22" width="500" height="60" rx="10" fill="rgba(143,160,147,.18)" stroke="var(--sage-d)"/>
+        <text x="618" y="46" class="n-lab">GENERATION — VBench-2.0 · VBench-Long · WorldScore</text>
+        <text x="618" y="66" class="n-sub">dynamic degree, subject &amp; background consistency, motion smoothness</text></g>
+      <g><rect x="600" y="89" width="500" height="60" rx="10" fill="rgba(143,160,147,.18)" stroke="var(--sage-d)"/>
+        <text x="618" y="113" class="n-lab">PREDICTION — Cityscapes / VSPW future segmentation · KITTI depth</text>
+        <text x="618" y="133" class="n-sub">frozen readout mIoU — reference: DINO-Foresight 59.8 · DINO-world 47.0</text></g>
+      <g><rect x="600" y="160" width="500" height="60" rx="10" fill="rgba(126,147,163,.14)" stroke="var(--slate)" stroke-dasharray="4 3"/>
+        <text x="618" y="184" class="n-lab" style="fill:var(--slate-d)">PHYSICS — IntPhys2 · Physics-IQ  (reported, not claimed)</text>
+        <text x="618" y="204" class="n-sub">measured at chance. We say so on slide 14.</text></g>
+    </svg>
+    <div class="gate">
+      <span class="pill">What is new here</span>
+      <p>Existing protocols evaluate a generator <em>or</em> a predictor. We hold the model fixed and force the <strong>same</strong> autoregressive sample through both authoritative pipelines — making "broad capability" an objective measurement rather than a narrative.</p>
+    </div>
+  </div>
+</section>
+
+<!-- 8 ───────────────────────────── PIPELINE -->
+<section class="slide" data-id="Pipeline">
+  <div class="hd">
+    <div>
+      <p class="eyebrow">Architecture — click a stage</p>
+      <h2>The whole system, end to end.</h2>
+    </div>
+    <p>Three frozen components, two trained ones, one transplant. Nothing else.</p>
+  </div>
+  <div class="body">
+    <svg viewBox="0 0 1100 250" id="pipe" aria-label="Interactive end-to-end pipeline diagram">
+      <g class="hit sel" data-k="enc">
+        <rect x="0" y="70" width="140" height="76" class="n-box"/>
+        <text x="70" y="100" text-anchor="middle" class="n-lab">DINOv3-L</text>
+        <text x="70" y="119" text-anchor="middle" class="n-sub">frozen</text>
+        <text x="70" y="136" text-anchor="middle" class="n-sub" style="fill:var(--sage-d)">■ per-frame</text>
+      </g>
+      <path d="M140 108 L182 108" class="flow"/>
+      <g class="hit" data-k="codec">
+        <rect x="182" y="70" width="150" height="76" class="n-box"/>
+        <text x="257" y="100" text-anchor="middle" class="n-lab">RAE codec</text>
+        <text x="257" y="119" text-anchor="middle" class="n-sub">linear bottleneck</text>
+        <text x="257" y="136" text-anchor="middle" class="n-sub" style="fill:var(--clay-d)">■ trained · 18.6M</text>
+      </g>
+      <path d="M332 108 L374 108" class="flow"/>
+      <g class="hit" data-k="wm">
+        <rect x="374" y="52" width="220" height="112" rx="10" fill="rgba(190,154,144,.16)" stroke="var(--clay-d)" stroke-width="1.6"/>
+        <text x="484" y="84" text-anchor="middle" class="n-lab" style="fill:var(--clay-d)">RE-BASED WORLD MODEL</text>
+        <text x="484" y="106" text-anchor="middle" class="n-sub">Wan2.2-5B · 30 blocks kept</text>
+        <text x="484" y="124" text-anchor="middle" class="n-sub">causal mask · diffusion forcing</text>
+        <text x="484" y="146" text-anchor="middle" class="n-sub" style="fill:var(--clay-d)">■ the single new mechanism</text>
+      </g>
+      <path d="M594 108 L636 108" class="flow hot"/>
+      <g class="hit" data-k="roll">
+        <rect x="636" y="70" width="140" height="76" class="n-box"/>
+        <text x="706" y="100" text-anchor="middle" class="n-lab">AR rollout</text>
+        <text x="706" y="119" text-anchor="middle" class="n-sub">ODE · few-step</text>
+        <text x="706" y="136" text-anchor="middle" class="n-sub">ẑ<tspan dy="0">c+1:T</tspan></text>
+      </g>
+      <path d="M776 96 C 812 96, 820 46, 856 46" class="flow"/>
+      <path d="M776 120 C 812 120, 820 170, 856 170" class="flow"/>
+      <g class="hit" data-k="gen">
+        <rect x="856" y="16" width="244" height="60" class="n-box"/>
+        <text x="878" y="41" class="n-lab">pixel decoder → video</text>
+        <text x="878" y="61" class="n-sub">generation axis</text>
+      </g>
+      <g class="hit" data-k="pred">
+        <rect x="856" y="140" width="244" height="60" class="n-box"/>
+        <text x="878" y="165" class="n-lab">frozen readout → mIoU / depth</text>
+        <text x="878" y="185" class="n-sub">prediction axis</text>
+      </g>
+      <text x="0" y="230" class="n-sub">DATA · OpenVid-1M — 75,807 windows of 16 frames (4 context + 12 future), features cached</text>
+    </svg>
+    <div class="inspect" id="pipeOut">
+      <span class="tag">Stage</span>
+      <h3>Frozen per-frame encoder</h3>
+      <p>DINOv3 ViT-L/16 at 224px, never updated. Multi-layer features are aggregated per frame into a 14×14×1024 grid. Freezing it is what makes the space smooth — and what makes the latents comparable across every arm of every experiment.</p>
+    </div>
+  </div>
+</section>
+
+<!-- 9 ───────────────────────────── CODEC -->
+<section class="slide" data-id="Codec">
+  <div class="hd">
+    <div>
+      <p class="eyebrow">Component 1 of 2 · trained</p>
+      <h2>The codec: compress the features, do not <em>distort</em> them.</h2>
+    </div>
+    <p>A single strided convolution — a linear map per space-time patch. No nonlinearity, by design: we want compression, not a second representation.</p>
+  </div>
+  <div class="body">
+    <div class="grid g2" style="gap:28px;align-items:center">
+      <svg viewBox="0 0 520 240" aria-label="Feature grids compressed by a linear bottleneck into a compact latent and decoded back">
+        <text x="0" y="14" class="n-sub">16 frames × 14×14×1024 features</text>
+        <g>
+          <rect x="0" y="30" width="58" height="58" rx="4" fill="rgba(143,160,147,.3)" stroke="var(--sage-d)"/>
+          <rect x="14" y="44" width="58" height="58" rx="4" fill="rgba(143,160,147,.3)" stroke="var(--sage-d)"/>
+          <rect x="28" y="58" width="58" height="58" rx="4" fill="rgba(143,160,147,.3)" stroke="var(--sage-d)"/>
+        </g>
+        <path d="M100 76 L160 76" class="flow"/>
+        <g>
+          <rect x="160" y="46" width="120" height="60" rx="8" fill="rgba(190,154,144,.2)" stroke="var(--clay-d)"/>
+          <text x="220" y="72" text-anchor="middle" class="n-lab" style="fill:var(--clay-d)">linear bottleneck</text>
+          <text x="220" y="90" text-anchor="middle" class="n-sub">Conv3d · stride 2×2×2</text>
+        </g>
+        <path d="M280 76 L340 76" class="flow"/>
+        <g>
+          <rect x="340" y="52" width="48" height="48" rx="4" fill="var(--clay)" opacity=".8"/>
+          <text x="364" y="120" text-anchor="middle" class="n-sub">z · 8×7×7×32</text>
+          <text x="364" y="136" text-anchor="middle" class="n-sub" style="fill:var(--clay-d)">256× smaller</text>
+        </g>
+        <path d="M364 150 C 364 182, 300 190, 240 190" class="flow dash"/>
+        <g>
+          <rect x="96" y="168" width="140" height="44" rx="8" class="n-box"/>
+          <text x="166" y="195" text-anchor="middle" class="n-lab">feature decoder</text>
+        </g>
+        <path d="M96 190 C 50 190, 40 150, 40 120" class="flow dash"/>
+        <text x="250" y="222" class="n-sub" style="fill:var(--sage-d)">reconstruction cosine 0.936 · measured</text>
+      </svg>
+      <div>
+        <div class="card good" style="margin-bottom:12px"><span class="tag">Why linear</span><h3>A nonlinear bottleneck would re-encode</h3><p>Any nonlinearity risks inventing a new representation and throwing away the smoothness we came here for. A linear map can only <em>compress</em>.</p></div>
+        <div class="card" style="margin-bottom:12px"><span class="tag">Why 2× in time</span><h3>The world model should not pay for redundancy</h3><p>Adjacent frames are nearly identical. Folding pairs of frames halves the sequence the transformer must attend over — the difference between a toy and a 5B rollout.</p></div>
+        <div class="card"><span class="tag">Measured</span><h3>18.6M params · trained in 10 minutes on one GPU</h3><p>The codec is cheap and frozen afterwards. Every world-model arm in every experiment shares the exact same codec, the same latent statistics, and the same data — so arms are directly comparable.</p></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- 10 ───────────────────────────── SURGERY -->
+<section class="slide" data-id="Re-basing">
+  <div class="hd">
+    <div>
+      <p class="eyebrow">Component 2 of 2 · the transplant</p>
+      <h2>The surgery: keep the body, replace the <em>sockets</em>.</h2>
+    </div>
+    <div class="toggle" id="tg">
+      <button class="on" data-v="a">Baseline latent</button>
+      <button data-v="b">Prior-aligned latent</button>
+    </div>
+  </div>
+  <div class="body">
+    <div class="grid g2" style="gap:30px;align-items:center">
+      <svg viewBox="0 0 480 300" aria-label="Which parts of the pretrained video transformer are kept and which are replaced">
+        <g id="sg-in">
+          <rect x="120" y="6" width="240" height="38" rx="8" fill="rgba(126,147,163,.18)" stroke="var(--slate)" stroke-dasharray="5 3"/>
+          <text x="240" y="30" text-anchor="middle" class="n-lab" id="sg-in-t" style="fill:var(--slate-d)">input conv — REPLACED</text>
+        </g>
+        <path d="M240 44 L240 58" class="flow"/>
+        <g>
+          <rect x="120" y="58" width="240" height="150" rx="10" fill="rgba(190,154,144,.16)" stroke="var(--clay-d)" stroke-width="1.6"/>
+          <text x="240" y="82" text-anchor="middle" class="n-lab" style="fill:var(--clay-d)">30 TRANSFORMER BLOCKS — KEPT</text>
+          <g opacity=".9">
+            <rect x="140" y="94" width="200" height="12" rx="3" fill="var(--clay)" opacity=".8"/>
+            <rect x="140" y="110" width="200" height="12" rx="3" fill="var(--clay)" opacity=".72"/>
+            <rect x="140" y="126" width="200" height="12" rx="3" fill="var(--clay)" opacity=".64"/>
+            <rect x="140" y="142" width="200" height="12" rx="3" fill="var(--clay)" opacity=".56"/>
+            <rect x="140" y="158" width="200" height="12" rx="3" fill="var(--clay)" opacity=".48"/>
+          </g>
+          <text x="240" y="192" text-anchor="middle" class="n-sub">self-attn · QK-norm · SwiGLU · AdaLN · RoPE</text>
+        </g>
+        <path d="M240 208 L240 222" class="flow"/>
+        <g id="sg-out">
+          <rect x="120" y="222" width="240" height="38" rx="8" fill="rgba(126,147,163,.18)" stroke="var(--slate)" stroke-dasharray="5 3"/>
+          <text x="240" y="246" text-anchor="middle" class="n-lab" id="sg-out-t" style="fill:var(--slate-d)">output projection — REPLACED</text>
+        </g>
+        <text x="240" y="284" text-anchor="middle" class="n-sub" id="sg-frac" style="fill:var(--clay-d)">≥ 90% of parameters arrive pretrained</text>
+      </svg>
+      <div>
+        <div class="card prior" style="margin-bottom:12px">
+          <span class="tag" id="v-tag">Baseline · faithful compression</span>
+          <h3 id="v-h">Latent 7×7×32 — the transformer's own patchifier is discarded</h3>
+          <p id="v-p">The latent is already spatially compact, so the pretrained input conv (which expects a 2× patchify) no longer fits and must be re-initialized. We keep the 30 blocks, and that is where the prior lives.</p>
+        </div>
+        <div class="card" id="v-x">
+          <span class="tag">Pre-registered prediction · H-J4</span>
+          <h3>If the prior is the source of the advantage, transferring <em>more</em> of it should widen the gap</h3>
+          <p>Switch the toggle to see the iteration: shape the latent like Wan's own input (48 channels, 14×14 grid) so its pretrained patchifier <em>and</em> output projection survive the move too. Falsifier: if the Wan-vs-scratch gap does not grow, then "amount of prior transferred" is not the mechanism, and the claim must shrink to "only the block attention matters."</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- 11 ───────────────────────────── CAUSAL + DF -->
+<section class="slide" data-id="Training">
+  <div class="hd">
+    <div>
+      <p class="eyebrow">Making a video generator into a world model</p>
+      <h2>Two edits turn full attention into a <em>streamable</em> state.</h2>
+    </div>
+    <p>The prior arrives non-causal and single-noise-level. It leaves frame-causal, per-frame-noise-level, and able to roll forward one frame at a time.</p>
+  </div>
+  <div class="body">
+    <div class="grid g2" style="gap:30px">
+      <div>
+        <div class="card good" style="margin-bottom:14px">
+          <span class="tag">Edit 01 · causal attention</span>
+          <h3>Bidirectional inside a frame, causal across frames</h3>
+          <p>Tokens are laid out frame-major, so each frame is a contiguous block and a single additive mask makes the model causal in time. <strong>Verified:</strong> perturbing the last frame changes earlier outputs by exactly zero.</p>
+        </div>
+        <div class="card good">
+          <span class="tag">Edit 02 · diffusion forcing</span>
+          <h3>Every frame gets its own noise level</h3>
+          <p>During training each frame independently samples how noisy it is. The model therefore learns to denoise a frame while conditioning on cleaner past frames — which is exactly the situation it faces at rollout time. Clean context, noisy future, one network.</p>
+        </div>
+      </div>
+      <div>
+        <svg viewBox="0 0 520 250" aria-label="Per-frame noise levels during training and the autoregressive rollout that follows">
+          <text x="0" y="14" class="n-sub">TRAINING · independent noise level per frame</text>
+          <g id="dfbars"></g>
+          <text x="0" y="120" class="n-sub">ROLLOUT · clean context, denoise the next frame, append</text>
+          <g>
+            <rect x="0" y="136" width="52" height="40" rx="5" fill="var(--sage)" opacity=".55" stroke="var(--sage-d)"/>
+            <rect x="60" y="136" width="52" height="40" rx="5" fill="var(--sage)" opacity=".55" stroke="var(--sage-d)"/>
+            <rect x="120" y="136" width="52" height="40" rx="5" fill="var(--sage)" opacity=".55" stroke="var(--sage-d)"/>
+            <text x="86" y="196" text-anchor="middle" class="n-sub">clean context</text>
+            <rect id="rollnext" x="180" y="136" width="52" height="40" rx="5" fill="var(--clay)" opacity=".85" stroke="var(--clay-d)"/>
+            <text x="206" y="196" text-anchor="middle" class="n-sub" style="fill:var(--clay-d)">denoise</text>
+            <rect x="240" y="136" width="52" height="40" rx="5" fill="none" stroke="var(--line-2)" stroke-dasharray="4 3"/>
+            <rect x="300" y="136" width="52" height="40" rx="5" fill="none" stroke="var(--line-2)" stroke-dasharray="4 3"/>
+            <text x="326" y="196" text-anchor="middle" class="n-sub">future</text>
+            <path d="M232 220 C 260 220, 268 200, 268 184" class="flow"/>
+            <text x="360" y="162" class="n-sub">→ append · roll window</text>
+            <text x="360" y="180" class="n-sub" style="fill:var(--clay-d)">→ few-step distillation → real-time</text>
+          </g>
+          <text x="0" y="240" class="n-sub">objective · flow matching: regress the velocity from noise to data</text>
+        </svg>
+      </div>
+    </div>
+    <div class="gate">
+      <span class="pill">Training recipe</span>
+      <p>Freeze codec → encode clips → standardize latents → flow-matching loss with per-frame noise · AdamW, lr 5e-5, warmup + cosine, bf16, grad-clip 1.0, DDP. The <strong>only</strong> variable between the two headline arms is the transformer initialization.</p>
+    </div>
+  </div>
+</section>
+
+<!-- 12 ───────────────────────────── ROADMAP -->
+<section class="slide" data-id="Roadmap">
+  <div class="hd">
+    <div>
+      <p class="eyebrow">Plan — click a phase</p>
+      <h2>Cheap first, decisive early, expensive last.</h2>
+    </div>
+    <p>Every phase ends in a checkpoint that can fail. The gate that can kill the project is the second one — deliberately.</p>
+  </div>
+  <div class="body">
+    <div class="tl" id="tl">
+      <div class="ph on" data-p="0">
+        <div class="p-id">Phase 0</div><h3>Apparatus</h3>
+        <p>Codec + surgery + causality, on cached features. One GPU.</p>
+        <div class="st done"><span class="d"></span>complete</div>
+      </div>
+      <div class="ph" data-p="1">
+        <div class="p-id">Phase 1 · the gate</div><h3>Does the prior transfer?</h3>
+        <p>Wan-init vs scratch-init. Identical codec, data, seed, latent stats.</p>
+        <div class="st done"><span class="d"></span>green</div>
+      </div>
+      <div class="ph" data-p="2">
+        <div class="p-id">Phase 2</div><h3>Scale &amp; decode</h3>
+        <p>Flagship training; pixel decoder to VBench quality; few-step distillation.</p>
+        <div class="st now"><span class="d"></span>running</div>
+      </div>
+      <div class="ph" data-p="3">
+        <div class="p-id">Phase 3</div><h3>Authoritative benchmarks</h3>
+        <p>Generation + prediction + the control arms that make the claim mean something.</p>
+        <div class="st next"><span class="d"></span>queued</div>
+      </div>
+    </div>
+    <div class="ck" id="ckOut">
+      <span class="tag" style="font:500 10px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3)">Checkpoints — Phase 0</span>
+      <ul style="margin-top:10px">
+        <li class="ok">Codec reconstructs frozen features — cosine 0.936, 256× compression</li>
+        <li class="ok">5B surgery loads real weights, forward + backward at 50 GB/GPU</li>
+        <li class="ok">Causality proof: perturbing frame T changes frames &lt;T by exactly 0</li>
+        <li class="ok">Rollout preserves context frames bit-exactly</li>
+      </ul>
+    </div>
+    <div class="gate">
+      <span class="pill">Gate rule</span>
+      <p><strong>If Phase 1 had come back flat</strong> — Wan-init ≈ scratch-init, within 2 SEM and no faster convergence — the thesis would have been falsified on the spot and the project would have pivoted to using the prior as a teacher instead of a body. It did not. See slide 14.</p>
+    </div>
+  </div>
+</section>
+
+<!-- 13 ───────────────────────────── RISKS -->
+<section class="slide" data-id="Risks">
+  <div class="hd">
+    <div>
+      <p class="eyebrow">What can go wrong — click a risk for the contingency</p>
+      <h2>Each risk has a written exit, decided <em>before</em> the run.</h2>
+    </div>
+    <p>Pre-registered fallbacks. Nothing here gets renegotiated after seeing the numbers.</p>
+  </div>
+  <div class="body">
+    <div class="grid g2" style="gap:14px">
+      <div class="card reveal bad" data-r><div class="cue">+</div>
+        <span class="tag">Risk · resolution</span><h3>7×7 latents are too coarse for segmentation readout</h3>
+        <p>Competing predictors read out at 28×28 or finer. Our compact latent may simply not carry enough spatial detail to compete on Cityscapes / VSPW.</p>
+        <div class="more"><p><strong>Contingency —</strong> split the compression dial (Insight 03): keep tight latents for the generation axis, re-base a second arm into a low-compression 14×14 latent for the prediction axis. The prior-aligned codec on slide 10 already delivers this for free, and doubles as the H-J4 test.</p></div>
+      </div>
+      <div class="card reveal bad" data-r><div class="cue">+</div>
+        <span class="tag">Risk · ceiling</span><h3>VBench scores the pixel decoder, not the world model</h3>
+        <p>The generation axis is upper-bounded by how well the RAE decoder renders. A weak decoder can hide a strong world model.</p>
+        <div class="more"><p><strong>Contingency —</strong> always evaluate a <em>ground-truth-decoded</em> control set: the same decoder rendering real latents. That measures the ceiling explicitly. If the ceiling is the binding constraint, the generation claim is downgraded to secondary and prediction (which needs no decoder) carries the paper.</p></div>
+      </div>
+      <div class="card reveal bad" data-r><div class="cue">+</div>
+        <span class="tag">Risk · mechanism</span><h3>The advantage is the architecture, not the prior</h3>
+        <p>Maybe Wan's block design simply happens to be good, and initialization is incidental.</p>
+        <div class="more"><p><strong>Contingency —</strong> the scratch arm is architecturally identical, so this is already controlled. H-J4 pushes further: transferring <em>more</em> pretrained parameters must widen the gap. If it does not, we shrink the claim honestly to "the block design transfers, the weights do not."</p></div>
+      </div>
+      <div class="card reveal bad" data-r><div class="cue">+</div>
+        <span class="tag">Risk · infrastructure</span><h3>The cluster is full; the flagship cannot start</h3>
+        <p>Large runs are queued behind other users. Wall-clock, not GPU budget, is the binding constraint.</p>
+        <div class="more"><p><strong>Contingency —</strong> the science was deliberately front-loaded onto cheap runs: the decisive gate cost two GPUs. Scale-up buys strength, not validity. Meanwhile the cheapest authoritative evaluations (physics, readout heads) run on one GPU and proceed regardless.</p></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- 14 ───────────────────────────── EVIDENCE -->
+<section class="slide" data-id="Evidence">
+  <div class="hd">
+    <div>
+      <p class="eyebrow">The one result that matters</p>
+      <h2>The prior <em>survives</em> the transplant.</h2>
+    </div>
+    <p>5B model, 15k steps, identical codec / data / seed / latent statistics. Only the transformer initialization differs.</p>
+  </div>
+  <div class="body">
+    <div class="metrics">
+      <div class="metric"><div class="v">−22%<small>↓</small></div><div class="l">converged flow loss<br>0.269 vs 0.345</div></div>
+      <div class="metric"><div class="v">+19.3%<small>↑</small></div><div class="l">rollout accuracy<br>mean latent L2</div></div>
+      <div class="metric"><div class="v">+20.5%<small>↑</small></div><div class="l">drift resistance<br>final-horizon error</div></div>
+      <div class="metric"><div class="v">+5.5%<small>↑</small></div><div class="l">distribution realism<br>feature Fréchet</div></div>
+    </div>
+    <div class="grid g2" style="gap:28px;margin-top:22px;align-items:center">
+      <svg viewBox="0 0 520 210" aria-label="Per-horizon drift curves: the transplanted model stays lower at every horizon">
+        <line x1="44" y1="170" x2="500" y2="170" stroke="var(--line-2)"/>
+        <line x1="44" y1="20" x2="44" y2="170" stroke="var(--line-2)"/>
+        <text x="44" y="192" class="n-sub">horizon 1</text>
+        <text x="470" y="192" class="n-sub">6</text>
+        <text x="0" y="24" class="n-sub">error</text>
+        <polyline points="44,142 132,118 220,95 308,88 396,77 484,73" fill="none" stroke="var(--clay-d)" stroke-width="2.4"/>
+        <polyline points="44,124 132,109 220,66 308,62 396,35 484,37" fill="none" stroke="var(--slate)" stroke-width="2" stroke-dasharray="5 4"/>
+        <circle cx="484" cy="73" r="4" fill="var(--clay-d)"/><circle cx="484" cy="37" r="4" fill="var(--slate)"/>
+        <text x="300" y="132" class="n-sub" style="fill:var(--clay-d);font-size:11px">transplanted prior — lower at every horizon</text>
+        <text x="300" y="26" class="n-sub" style="fill:var(--slate-d);font-size:11px">from scratch</text>
+      </svg>
+      <div>
+        <div class="card prior" style="margin-bottom:12px"><span class="tag">Reading</span><h3>Not just faster — <em>better</em></h3><p>The gap does not close by convergence. The transplanted model reaches a strictly better endpoint, predicts more accurately under autoregression, and degrades more slowly the further it rolls. Scaling the run further (30k steps, larger batch) lowers the loss again to 0.255 — the advantage keeps cashing in.</p></div>
+        <div class="honest"><p><strong>Reported honestly —</strong> on IntPhys2 physical-plausibility, both arms sit at chance (AUROC ≈ 0.50). The prior transfers <em>dynamics accuracy and drift robustness</em>; it does <strong>not</strong> transfer physical reasoning. Physics is therefore not a benchmark we claim, and we say so before anyone asks.</p></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- 15 ───────────────────────────── CLOSING -->
+<section class="slide" data-id="Takeaway">
+  <div class="close">
+    <div>
+      <p class="eyebrow">If this holds</p>
+      <h1>Every frontier<br>video model is a<br><em>world model</em><br>waiting to move.</h1>
+      <p class="lede" style="margin-top:22px">You do not have to train a domain-specific world model from scratch. You can relocate one — and keep the web-scale knowledge.</p>
+    </div>
+    <div>
+      <div class="claim"><span>The mechanism</span><h3>Latent re-basing — swap the sockets, keep the prior, add causality.</h3></div>
+      <div class="claim"><span>The question</span><h3>Does a video diffusion prior transfer across latent spaces? Measured: yes.</h3></div>
+      <div class="claim"><span>The payoff</span><h3>One model that generates <em>and</em> predicts — checkable on both, in the same rollout.</h3></div>
+      <div class="claim"><span>The discipline</span><h3>Pre-registered gates, a scratch control arm, and a failure we report unprompted.</h3></div>
+    </div>
+  </div>
+</section>
+
+</main>
+
+<div class="rail">
+  <span class="rail__id" id="rid">01 / 15 · RAVEN</span>
+  <div class="dots" id="dots"></div>
+  <div class="nav">
+    <button id="prev" aria-label="Previous slide">Prev</button>
+    <button id="next" aria-label="Next slide">Next</button>
+  </div>
+</div>
+
+<script>
+(function(){
+  const slides=[...document.querySelectorAll('.slide')];
+  const dots=document.getElementById('dots');
+  const rid=document.getElementById('rid');
+  let i=0;
+  slides.forEach((s,n)=>{
+    const b=document.createElement('button');
+    b.className='dot'+(n===0?' on':'');
+    b.setAttribute('aria-label','Slide '+(n+1)+': '+s.dataset.id);
+    b.onclick=()=>go(n); dots.appendChild(b);
+  });
+  const marks=[...dots.children];
+  function go(n){
+    i=Math.max(0,Math.min(slides.length-1,n));
+    slides.forEach((s,k)=>s.classList.toggle('is-active',k===i));
+    marks.forEach((d,k)=>d.classList.toggle('on',k===i));
+    rid.textContent=String(i+1).padStart(2,'0')+' / '+slides.length+' · '+slides[i].dataset.id;
+    if(location.hash!=='#'+(i+1)) history.replaceState(null,'','#'+(i+1));
+    window.scrollTo(0,0);
+  }
+  document.getElementById('next').onclick=()=>go(i+1);
+  document.getElementById('prev').onclick=()=>go(i-1);
+  addEventListener('keydown',e=>{
+    if(e.key==='ArrowRight'||e.key==='PageDown'||e.key===' ')  {e.preventDefault();go(i+1);}
+    if(e.key==='ArrowLeft' ||e.key==='PageUp')                 {e.preventDefault();go(i-1);}
+    if(e.key==='Home')go(0); if(e.key==='End')go(slides.length-1);
+  });
+  const h=parseInt(location.hash.slice(1),10);
+  if(h)go(h-1); else go(0);
+  setTimeout(()=>{const t=document.getElementById('hint');if(t)t.style.opacity=0;},4200);
+
+  /* click-to-reveal cards */
+  document.querySelectorAll('[data-r]').forEach(c=>{
+    c.tabIndex=0;
+    const t=()=>c.classList.toggle('open');
+    c.addEventListener('click',t);
+    c.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();t();}});
+  });
+
+  /* pipeline inspector */
+  const copy={
+    enc:['Frozen','Per-frame encoder — DINOv3 ViT-L/16','Never updated. Multi-layer features aggregated into a 14×14×1024 grid per frame. Freezing it is what makes the space smooth — and what makes every experimental arm directly comparable, since all arms share identical latent statistics.'],
+    codec:['Trained · 18.6M','Representation autoencoder — the compression','A single linear strided convolution maps each 2×2×2 patch of features into one latent vector: 256× compression, reconstruction cosine 0.936. Linear by design — compress, never re-encode. Frozen before the world model is trained.'],
+    wm:['The contribution','Re-based world model — Wan2.2-TI2V-5B','30 pretrained transformer blocks are kept; only the input conv, the output projection and the text-conditioning are replaced. A frame-causal mask and per-frame noise levels convert a bidirectional video generator into a streamable world model. ≥90% of parameters arrive pretrained — that is the prior under test.'],
+    roll:['Inference','Autoregressive rollout','Encode context frames to clean latents, then integrate the flow ODE from noise to data for each future frame, conditioned on the causal past. Append, roll the window, repeat. Few-step distillation targets real-time sampling.'],
+    gen:['Exit 1','Generation axis','The predicted latents are decoded to pixels and scored on VBench-2.0 / WorldScore. The decisive question inherited from our previous negative result: can one model be dynamic AND coherent, instead of collapsing to a static or incoherent mean?'],
+    pred:['Exit 2','Prediction axis','The same latents are decoded back to DINOv3 features and read by frozen heads for future segmentation and depth — no pixel decoder involved. This axis is the robust core of the claim, and it is where DINO-world and DINO-Foresight are the references to beat.']
+  };
+  const out=document.getElementById('pipeOut');
+  document.querySelectorAll('#pipe .hit').forEach(n=>{
+    n.addEventListener('click',()=>{
+      document.querySelectorAll('#pipe .hit').forEach(m=>m.classList.remove('sel'));
+      n.classList.add('sel');
+      const c=copy[n.dataset.k]; if(!c)return;
+      out.innerHTML='<span class="tag">'+c[0]+'</span><h3>'+c[1]+'</h3><p>'+c[2]+'</p>';
+    });
+  });
+
+  /* re-basing toggle */
+  const tg=document.getElementById('tg');
+  const V={
+    a:{in:'input conv — REPLACED',out:'output projection — REPLACED',frac:'≥ 90% of parameters arrive pretrained',
+       tag:'Baseline · faithful compression',
+       h:'Latent 7×7×32 — the transformer’s own patchifier is discarded',
+       p:'The latent is already spatially compact, so the pretrained input conv (which expects a 2× patchify) no longer fits and must be re-initialized. We keep the 30 blocks, and that is where the prior lives.',
+       col:'var(--slate)',colt:'var(--slate-d)',bg:'rgba(126,147,163,.18)'},
+    b:{in:'input conv — KEPT',out:'output projection — KEPT',frac:'~100% of parameters arrive pretrained',
+       tag:'Iteration · prior-aligned latent',
+       h:'Latent 14×14×48 — shaped like Wan’s own input',
+       p:'Give the codec 48 channels on a 14×14 grid and Wan’s pretrained patchifier does the 2× spatial compression itself. Sequence length is unchanged — but now the input and output projections transfer too. Side effect: readout resolution doubles, which is exactly what the segmentation axis needs.',
+       col:'var(--clay-d)',colt:'var(--clay-d)',bg:'rgba(190,154,144,.18)'}
+  };
+  tg.addEventListener('click',e=>{
+    const b=e.target.closest('button'); if(!b)return;
+    [...tg.children].forEach(x=>x.classList.remove('on')); b.classList.add('on');
+    const v=V[b.dataset.v];
+    const gin=document.querySelector('#sg-in rect'), gout=document.querySelector('#sg-out rect');
+    [gin,gout].forEach(r=>{r.setAttribute('fill',v.bg);r.setAttribute('stroke',v.col);
+      r.setAttribute('stroke-dasharray',b.dataset.v==='b'?'0':'5 3');});
+    const it=document.getElementById('sg-in-t'), ot=document.getElementById('sg-out-t');
+    it.textContent=v.in; ot.textContent=v.out;
+    it.style.fill=v.colt; ot.style.fill=v.colt;
+    document.getElementById('sg-frac').textContent=v.frac;
+    document.getElementById('v-tag').textContent=v.tag;
+    document.getElementById('v-h').innerHTML=v.h;
+    document.getElementById('v-p').textContent=v.p;
+  });
+
+  /* diffusion-forcing bars */
+  const g=document.getElementById('dfbars');
+  const lv=[.18,.72,.35,.94,.55,.08,.66,.41];
+  lv.forEach((v,k)=>{
+    const x=k*64;
+    const r=document.createElementNS('http://www.w3.org/2000/svg','rect');
+    r.setAttribute('x',x);r.setAttribute('y',30);r.setAttribute('width',52);r.setAttribute('height',52);
+    r.setAttribute('rx',5);r.setAttribute('fill','var(--clay)');r.setAttribute('opacity',(0.18+v*0.72).toFixed(2));
+    r.setAttribute('stroke','var(--clay-d)');r.setAttribute('stroke-opacity','.5');g.appendChild(r);
+    const t=document.createElementNS('http://www.w3.org/2000/svg','text');
+    t.setAttribute('x',x+26);t.setAttribute('y',98);t.setAttribute('text-anchor','middle');
+    t.setAttribute('class','n-sub');t.textContent='τ'+(k+1);g.appendChild(t);
+  });
+
+  /* roadmap */
+  const CK={
+    0:['Phase 0 — apparatus',[['Codec reconstructs frozen features — cosine 0.936, 256× compression',1],
+      ['5B surgery loads real weights; forward + backward at 50 GB/GPU',1],
+      ['Causality proof: perturbing frame T changes frames &lt;T by exactly 0',1],
+      ['Rollout preserves context frames bit-exactly',1]]],
+    1:['Phase 1 — the decisive gate (2 GPUs, 15k steps)',[['Both arms trained to convergence on identical latents',1],
+      ['Wan-init converges lower, not just faster (−22% flow loss)',1],
+      ['Autoregressive rollout confirms it: +19.3% accuracy, +20.5% drift resistance',1],
+      ['Verdict GREEN → proceed. A flat result would have ended the thesis here.',1]]],
+    2:['Phase 2 — scale &amp; decode (running / queued)',[['Flagship run: 4 GPUs, 30k steps — loss 0.255, advantage keeps cashing in',1],
+      ['Pixel decoder brought to VBench-grade rendering',0],
+      ['Ground-truth-decoded control set to measure the decoder ceiling',0],
+      ['Few-step self-distillation for real-time rollout',0]]],
+    3:['Phase 3 — authoritative benchmarks',[['Generation: VBench-2.0 — is it dynamic AND coherent? (the mean-collapse test)',0],
+      ['Prediction: Cityscapes / VSPW future segmentation vs DINO-Foresight 59.8, DINO-world 47.0',0],
+      ['Control arm: a same-size world model in the pixel-VAE latent — does representation space still win at scale?',0],
+      ['Control arm: from-scratch representation WM — isolates what web-scale pretraining actually bought',0]]]
+  };
+  const tl=document.getElementById('tl'), ck=document.getElementById('ckOut');
+  tl.addEventListener('click',e=>{
+    const p=e.target.closest('.ph'); if(!p)return;
+    [...tl.children].forEach(x=>x.classList.remove('on')); p.classList.add('on');
+    const d=CK[p.dataset.p];
+    ck.innerHTML='<span class="tag" style="font:500 10px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3)">Checkpoints — '+d[0]+'</span><ul style="margin-top:10px">'+
+      d[1].map(r=>'<li class="'+(r[1]?'ok':'')+'">'+r[0]+'</li>').join('')+'</ul>';
+  });
+})();
+</script>
+</body>
+</html>
